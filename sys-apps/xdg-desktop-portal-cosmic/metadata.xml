@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "http://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+    <maintainer type="person">
+        <email>vadorovsky@protonmail.com</email>
+        <name>Mike Rostecki</name>
+    </maintainer>
+    <longdescription>
+        Backend implementation for xdg-desktop-portal using COSMIC desktop.
+        Makes flatpak working on COSMIC.
+    </longdescription>
+    <upstream>
+        <remote-id type="github">pop-os/xdg-desktop-portal-cosmic</remote-id>
+    </upstream>
+</pkgmetadata>
