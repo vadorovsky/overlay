@@ -1,0 +1,19 @@
+image: gentoo/stage3:latest
+
+stages:
+  - test
+
+before_script:
+  - echo 'ACCEPT_LICENSE="*"' >> /etc/portage/make.conf
+  - emerge --sync > /dev/null 2>&1
+  - emerge pkgcheck
+
+pkgcheck:
+  stage: test
+  script:
+    - |
+      output=$(pkgcheck scan)
+      if [ -n "$output" ]; then
+        echo "$output"
+        exit 1
+      fi
