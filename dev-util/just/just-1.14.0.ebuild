@@ -132,7 +132,7 @@ DESCRIPTION="A tool to save and run project-specific commands"
 # does not provide this value so instead repository is used
 HOMEPAGE="https://github.com/casey/just"
 SRC_URI="
-	https://github.com/casey/just/archive/refs/tags/1.14.0.tar.gz -> ${P}.tar.gz
+	https://github.com/casey/just/archive/refs/tags/${PV}.tar.gz -> ${P}.tar.gz
 	$(cargo_crate_uris)
 "
 

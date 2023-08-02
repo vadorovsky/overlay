@@ -6,6 +6,10 @@
         <name>Mike Rostecki</name>
     </maintainer>
     <longdescription>
-        A tool to save and run project-specific commands
+        just is a tool to save and run project-specific commands as recipies,
+        focused on provifing detailed error messages.
     </longdescription>
+    <upstream>
+        <remote-id type="github">casey/just</remote-id>
+    </upstream>
 </pkgmetadata>
