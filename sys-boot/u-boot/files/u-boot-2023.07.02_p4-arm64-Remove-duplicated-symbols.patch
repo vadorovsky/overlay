@@ -1,0 +1,45 @@
+From 4787c764f98ac9d4670ff45e11676c28fb61b882 Mon Sep 17 00:00:00 2001
+From: Leo Yan <leo.yan@linaro.org>
+Date: Thu, 4 May 2023 15:54:58 +0800
+Subject: [PATCH] arm64: Remove duplicated symbols
+
+When build U-boot with clang with using commands:
+
+  $ make HOSTCC=clang xenguest_arm64_defconfig
+  $ make HOSTCC=clang CROSS_COMPILE=aarch64-linux-gnu- \
+		CC="clang -target aarch64-linux-gnueabi" -j8
+
+The compiler reports error:
+
+  /tmp/start-acdf31.s:330:1: error: symbol '_start' is already defined
+  _start:
+  ^
+
+Because the symbol '_start' has been defined twice, one is defined in
+arch/arm/cpu/armv8/start.S, another is defined in the header
+boot0-linux-kernel-header.h.
+
+To fix building failure, this patch removes the symbol '_start' from
+boot0-linux-kernel-header.h.
+
+Signed-off-by: Leo Yan <leo.yan@linaro.org>
+---
+ arch/arm/include/asm/boot0-linux-kernel-header.h | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/arch/arm/include/asm/boot0-linux-kernel-header.h b/arch/arm/include/asm/boot0-linux-kernel-header.h
+index c6cd76f32a..c930fea5fd 100644
+--- a/arch/arm/include/asm/boot0-linux-kernel-header.h
++++ b/arch/arm/include/asm/boot0-linux-kernel-header.h
+@@ -31,8 +31,6 @@
+ 	.long	\sym\()_hi32
+ 	.endm
+ 
+-.globl _start
+-_start:
+ 	/*
+ 	 * DO NOT MODIFY. Image header expected by Linux boot-loaders.
+ 	 */
+-- 
+2.41.0
+

@@ -1,0 +1,37 @@
+From acb19b7f8057051efcd54fd5fbb50680f2c71725 Mon Sep 17 00:00:00 2001
+From: Sam Edwards <cfsworks@gmail.com>
+Date: Sat, 20 May 2023 14:55:45 -0600
+Subject: [PATCH] arm: efi_loader: move .dynamic out of .text in EFI
+
+This is not proper: A .text section is SHT_PROGBITS,
+while the .dynamic section is SHT_DYNAMIC. Attempting to
+combine them like this creates a section type mismatch.
+
+It does seem that GNU ld does not complain, but LLVM's lld
+considers this an error.
+
+Signed-off-by: Sam Edwards <CFSworks@gmail.com>
+Cc: Heinrich Schuchardt <heinrich.schuchardt@canonical.com>
+---
+ arch/arm/lib/elf_aarch64_efi.lds | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/arch/arm/lib/elf_aarch64_efi.lds b/arch/arm/lib/elf_aarch64_efi.lds
+index 5dd9809169..986f13936d 100644
+--- a/arch/arm/lib/elf_aarch64_efi.lds
++++ b/arch/arm/lib/elf_aarch64_efi.lds
+@@ -24,10 +24,9 @@ SECTIONS
+ 		*(.gnu.linkonce.t.*)
+ 		*(.srodata)
+ 		*(.rodata*)
+-		. = ALIGN(16);
+-		*(.dynamic);
+ 		. = ALIGN(512);
+ 	}
++	.dynamic : { *(.dynamic) }
+ 	.rela.dyn : { *(.rela.dyn) }
+ 	.rela.plt : { *(.rela.plt) }
+ 	.rela.got : { *(.rela.got) }
+-- 
+2.41.0
+
