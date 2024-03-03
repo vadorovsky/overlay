@@ -33,9 +33,10 @@ src_configure() {
 	# pre-set since we need to pass it to cmake
 	BUILD_DIR=${WORKDIR}/${P}_build
 
-	if ! tc-is-clang ; then
-		die "this package is for clang only system"
-	fi
+	# NOTE(vadorovsky): This check is failing when cross-compiling.
+	# if ! tc-is-clang ; then
+	# 	die "this package is for clang only system"
+	# fi
 
 	strip-unsupported-flags
 
