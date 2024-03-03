@@ -3,7 +3,7 @@
 
 EAPI=8
 
-inherit cmake flag-o-matic llvm llvm.org toolchain-funcs
+inherit cmake crossdev flag-o-matic llvm llvm.org toolchain-funcs
 
 DESCRIPTION="Compiler runtime library for GCC (LLVM compatible version)"
 HOMEPAGE="https://llvm.org/"
@@ -25,6 +25,15 @@ BDEPEND="
 
 LLVM_COMPONENTS=( compiler-rt cmake llvm/cmake llvm-libgcc )
 llvm.org_set_globals
+
+pkg_setup() {
+	if target_is_not_host || tc-is-cross-compiler ; then
+		# strips vars like CFLAGS="-march=x86_64-v3" for non-x86 architectures
+		CHOST=${CTARGET} strip-unsupported-flags
+		# overrides host docs otherwise
+		DOCS=()
+	fi
+}
 
 src_configure() {
 	# LLVM_ENABLE_ASSERTIONS=NO does not guarantee this for us, #614844
@@ -60,6 +69,26 @@ src_configure() {
 		)
 	fi
 
+	if target_is_not_host || tc-is-cross-compiler ; then
+		# Needed to target built libc headers
+		export CFLAGS="${CFLAGS} -isystem /usr/${CTARGET}/usr/include"
+		mycmakeargs+=(
+			# Without this, the compiler will compile a test program
+			# and fail due to no builtins.
+			-DCMAKE_C_COMPILER_WORKS=1
+			-DCMAKE_CXX_COMPILER_WORKS=1
+
+			# Without this, compiler-rt install location is not unique
+			# to target triples, only to architecture.
+			# Needed if you want to target multiple libcs for one arch.
+			-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON
+
+			-DCMAKE_ASM_COMPILER_TARGET="${CTARGET}"
+			-DCMAKE_C_COMPILER_TARGET="${CTARGET}"
+			-DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
+		)
+	fi
+
 	cmake_src_configure
 }
 
@@ -68,8 +97,8 @@ src_compile() {
 
 	shopt -s nullglob
 	$(tc-getCC) -E -xc ${WORKDIR}/llvm-libgcc/lib/gcc_s.ver -o ${BUILD_DIR}/gcc_s.ver || die
-	$(tc-getCC) -nostdlib -Wl,-znodelete,-zdefs -Wl,--version-script,${BUILD_DIR}/gcc_s.ver \
-		-Wl,--whole-archive ${EPREFIX}/usr/lib/libunwind.a ${BUILD_DIR}/lib/linux/libclang_rt.builtins*.a \
+	$(tc-getCC) ${LDFLAGS} -nostdlib -Wl,-znodelete,-zdefs -Wl,--version-script,${BUILD_DIR}/gcc_s.ver \
+		-Wl,--whole-archive "${ESYSROOT}"/usr/lib/libunwind.a ${BUILD_DIR}/lib/linux/libclang_rt.builtins*.a \
 		-Wl,-soname,libgcc_s.so.1.0 -lc -shared -o ${BUILD_DIR}/libgcc_s.so.1.0
 	shopt -u nullglob
 }
