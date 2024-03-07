@@ -96,9 +96,11 @@ src_compile() {
 	cmake_src_compile
 
 	shopt -s nullglob
-	$(tc-getCC) -E -xc ${WORKDIR}/llvm-libgcc/lib/gcc_s.ver -o ${BUILD_DIR}/gcc_s.ver || die
-	$(tc-getCC) ${LDFLAGS} -nostdlib -Wl,-znodelete,-zdefs -Wl,--version-script,${BUILD_DIR}/gcc_s.ver \
-		-Wl,--whole-archive "${ESYSROOT}"/usr/lib/libunwind.a ${BUILD_DIR}/lib/linux/libclang_rt.builtins*.a \
+	$(tc-getCC) --target=${CTARGET} --sysroot=${ESYSROOT} \
+		-E -xc ${WORKDIR}/llvm-libgcc/lib/gcc_s.ver -o ${BUILD_DIR}/gcc_s.ver || die
+	$(tc-getCC) --target=${CTARGET} --sysroot=${ESYSROOT} ${LDFLAGS} -nostdlib \
+		-Wl,-znodelete,-zdefs -Wl,--version-script,${BUILD_DIR}/gcc_s.ver \
+		-Wl,--whole-archive "${ESYSROOT}"/usr/lib/libunwind.a ${BUILD_DIR}/lib/${CTARGET}/libclang_rt.builtins*.a \
 		-Wl,-soname,libgcc_s.so.1.0 -lc -shared -o ${BUILD_DIR}/libgcc_s.so.1.0
 	shopt -u nullglob
 }
