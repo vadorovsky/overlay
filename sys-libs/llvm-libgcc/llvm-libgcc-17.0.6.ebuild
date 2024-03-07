@@ -95,20 +95,36 @@ src_configure() {
 src_compile() {
 	cmake_src_compile
 
+	# For host builds, compiler-rt builtins are in ${BUILD_DIR}/lib/linux directory.
+	# For cross builds, a target triple is used instead of "linux", so they are in
+	# ${BUILD_DIR}/lib/${CTARGET} (e.g. ${BUILD_DIR}/lib/aarch64-gentoo-linux-musl).
+	RT_BUILTINS_DIR="linux"
+	if target_is_not_host || tc-is-cross-compiler ; then
+		RT_BUILTINS_DIR="${CTARGET}"
+	fi
+
 	shopt -s nullglob
 	$(tc-getCC) --target=${CTARGET} --sysroot=${ESYSROOT} \
 		-E -xc ${WORKDIR}/llvm-libgcc/lib/gcc_s.ver -o ${BUILD_DIR}/gcc_s.ver || die
 	$(tc-getCC) --target=${CTARGET} --sysroot=${ESYSROOT} ${LDFLAGS} -nostdlib \
 		-Wl,-znodelete,-zdefs -Wl,--version-script,${BUILD_DIR}/gcc_s.ver \
-		-Wl,--whole-archive ${ESYSROOT}/usr/lib/libunwind.a ${BUILD_DIR}/lib/${CTARGET}/libclang_rt.builtins*.a \
+		-Wl,--whole-archive ${ESYSROOT}/usr/lib/libunwind.a ${BUILD_DIR}/lib/${RT_BUILTINS_DIR}/libclang_rt.builtins*.a \
 		-Wl,-soname,libgcc_s.so.1.0 -lc -shared -o ${BUILD_DIR}/libgcc_s.so.1.0
 	shopt -u nullglob
 }
 
 src_install() {
+	# For host builds, compiler-rt builtins are in ${BUILD_DIR}/lib/linux directory.
+	# For cross builds, a target triple is used instead of "linux", so they are in
+	# ${BUILD_DIR}/lib/${CTARGET} (e.g. ${BUILD_DIR}/lib/aarch64-gentoo-linux-musl).
+	RT_BUILTINS_DIR="linux"
+	if target_is_not_host || tc-is-cross-compiler ; then
+		RT_BUILTINS_DIR="${CTARGET}"
+	fi
+
 	shopt -s nullglob
 	dolib.so ${BUILD_DIR}/libgcc_s.so.1.0
-	newlib.a ${BUILD_DIR}/lib/${CTARGET}/libclang_rt.builtins*.a libgcc.a
+	newlib.a ${BUILD_DIR}/lib/${RT_BUILTINS_DIR}/libclang_rt.builtins*.a libgcc.a
 	dosym libgcc_s.so.1.0 /usr/lib/libgcc_s.so.1
 	dosym libgcc_s.so.1 /usr/lib/libgcc_s.so
 	dosym libunwind.a /usr/lib/libgcc_eh.a
