@@ -1,0 +1,3 @@
+riscv		default/linux/riscv/23.0/rv64/lp64/musl				exp
+riscv		default/linux/riscv/23.0/rv64/split-usr/lp64d/musl		exp
+riscv		default/linux/riscv/23.0/rv64/split-usr/lp64/musl		exp
