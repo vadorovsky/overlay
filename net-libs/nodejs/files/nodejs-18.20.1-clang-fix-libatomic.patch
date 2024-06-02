@@ -1,0 +1,47 @@
+From 0f3acd05a989380ddd4ea41b5b87cfe706b7b277 Mon Sep 17 00:00:00 2001
+From: Michal Rostecki <vadorovsky@protonmail.com>
+Date: Sun, 2 Jun 2024 06:03:59 +0200
+Subject: [PATCH] build: Don't add `-latomic` for clang
+
+compiler-rt supports `__atomic_is_lock_free` since LLVM 12[0]. Requiring
+`-latomic` on clang builds introduces a dependency on libgcc, which is
+often undesirable on LLVM-based build environments. This change makes
+sure it's never added in clang builds, so it can use the compiler-rt's
+implementation.
+
+[0] https://github.com/llvm/llvm-project/commit/00530dee5d1295dc20ebafdd9a8a79662f41513e
+---
+ node.gyp                 | 3 ---
+ tools/v8_gypfiles/v8.gyp | 2 +-
+ 2 files changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/node.gyp b/node.gyp
+index ef0c9aa74c..3d6abf6f4b 100644
+--- a/node.gyp
++++ b/node.gyp
+@@ -498,9 +498,6 @@
+           '-Wl,-bnoerrmsg',
+         ],
+       }],
+-      ['OS=="linux" and clang==1', {
+-        'libraries': ['-latomic'],
+-      }],
+     ],
+   },
+ 
+diff --git a/tools/v8_gypfiles/v8.gyp b/tools/v8_gypfiles/v8.gyp
+index 837789beda..e370fbd979 100644
+--- a/tools/v8_gypfiles/v8.gyp
++++ b/tools/v8_gypfiles/v8.gyp
+@@ -1243,7 +1243,7 @@
+         }],
+         # Platforms that don't have Compare-And-Swap (CAS) support need to link atomic library
+         # to implement atomic memory access
+-        ['v8_current_cpu in ["mips64", "mips64el", "ppc", "arm", "riscv64", "loong64"]', {
++        ['clang==0 and v8_current_cpu in ["mips64", "mips64el", "ppc", "arm", "riscv64", "loong64"]', {
+           'link_settings': {
+             'libraries': ['-latomic', ],
+           },
+-- 
+2.44.1
+
