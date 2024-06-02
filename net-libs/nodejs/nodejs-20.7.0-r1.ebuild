@@ -1,10 +1,10 @@
-# Copyright 1999-2024 Gentoo Authors
+# Copyright 1999-2023 Gentoo Authors
 # Distributed under the terms of the GNU General Public License v2
 
 EAPI=8
 
 CONFIG_CHECK="~ADVISE_SYSCALLS"
-PYTHON_COMPAT=( python3_{10..11} )
+PYTHON_COMPAT=( python3_{9..11} )
 PYTHON_REQ_USE="threads(+)"
 
 inherit bash-completion-r1 check-reqs flag-o-matic linux-info pax-utils python-any-r1 toolchain-funcs xdg-utils
@@ -20,15 +20,17 @@ if [[ ${PV} == *9999 ]]; then
 else
 	SRC_URI="https://nodejs.org/dist/v${PV}/node-v${PV}.tar.xz"
 	SLOT="0/$(ver_cut 1)"
-	KEYWORDS="amd64 arm arm64 ~loong ppc64 ~riscv x86 ~amd64-linux ~x64-macos"
+	KEYWORDS="~amd64 ~arm ~arm64 ~loong ~ppc64 ~riscv ~x86 ~amd64-linux ~x64-macos"
 	S="${WORKDIR}/node-v${PV}"
 fi
 
-IUSE="corepack cpu_flags_x86_sse2 debug doc +icu inspector lto +npm pax-kernel +snapshot +ssl +system-icu +system-ssl systemtap test"
-REQUIRED_USE="inspector? ( icu ssl )
+IUSE="corepack cpu_flags_x86_sse2 debug doc +icu inspector lto +npm pax-kernel +snapshot +ssl +system-icu +system-ssl test"
+REQUIRED_USE="corepack? ( !npm )
+	inspector? ( icu ssl )
 	npm? ( ssl )
 	system-icu? ( icu )
-	system-ssl? ( ssl )"
+	system-ssl? ( ssl )
+	x86? ( cpu_flags_x86_sse2 )"
 
 RESTRICT="!test? ( test )"
 
@@ -41,15 +43,12 @@ RDEPEND=">=app-arch/brotli-1.0.9:=
 	system-icu? ( >=dev-libs/icu-67:= )
 	system-ssl? ( >=dev-libs/openssl-1.1.1:0= )"
 BDEPEND="${PYTHON_DEPS}
+	app-alternatives/ninja
 	sys-apps/coreutils
 	virtual/pkgconfig
-	systemtap? ( dev-debug/systemtap )
 	test? ( net-misc/curl )
 	pax-kernel? ( sys-apps/elfix )"
 DEPEND="${RDEPEND}"
-PATCHES=(
-	"${FILESDIR}/${PN}-18.20.1-clang-fix-libatomic.patch"
-)
 
 # These are measured on a loong machine with -ggdb on, and only checked
 # if debugging flags are present in CFLAGS.
@@ -61,10 +60,12 @@ PATCHES=(
 CHECKREQS_MEMORY="8G"
 CHECKREQS_DISK_BUILD="22G"
 
-pkg_pretend() {
-	(use x86 && ! use cpu_flags_x86_sse2) && \
-		die "Your CPU doesn't support the required SSE2 instruction."
+PATCHES=(
+	"${FILESDIR}"/"${PN}"-20.3.0-gcc14.patch
+	"${FILESDIR}"/${PN}-16.20.2-clang-fix-libatomic.patch
+	)
 
+pkg_pretend() {
 	if [[ ${MERGE_TYPE} != "binary" ]]; then
 		if is-flagq "-g*" && ! is-flagq "-g*0" ; then
 			einfo "Checking for sufficient disk space and memory to build ${PN} with debugging CFLAGS"
@@ -87,6 +88,9 @@ src_prepare() {
 	# https://code.google.com/p/gyp/issues/detail?id=260
 	sed -i -e "/append('-arch/d" tools/gyp/pylib/gyp/xcode_emulation.py || die
 
+	# less verbose install output (stating the same as portage, basically)
+	sed -i -e "/print/d" tools/install.py || die
+
 	# proper libdir, hat tip @ryanpcmcquen https://github.com/iojs/io.js/issues/504
 	local LIBDIR=$(get_libdir)
 	sed -i -e "s|lib/|${LIBDIR}/|g" tools/install.py || die
@@ -104,7 +108,7 @@ src_prepare() {
 	fi
 
 	# We need to disable mprotect on two files when it builds Bug 694100.
-	use pax-kernel && PATCHES+=( "${FILESDIR}"/${PN}-18.16.0-paxmarking.patch )
+	use pax-kernel && PATCHES+=( "${FILESDIR}"/${PN}-20.6.0-paxmarking.patch )
 
 	default
 }
@@ -118,6 +122,7 @@ src_configure() {
 	append-atomic-flags
 
 	local myconf=(
+		--ninja
 		--shared-brotli
 		--shared-cares
 		--shared-libuv
@@ -162,12 +167,11 @@ src_configure() {
 	"${EPYTHON}" configure.py \
 		--prefix="${EPREFIX}"/usr \
 		--dest-cpu=${myarch} \
-		$(use_with systemtap dtrace) \
 		"${myconf[@]}" || die
 }
 
 src_compile() {
-	emake -C out -Onone
+	emake
 }
 
 src_install() {
@@ -230,11 +234,11 @@ src_install() {
 
 src_test() {
 	local drop_tests=(
-		test/parallel/test-dns-resolveany.js
-		test/parallel/test-dns-resolveany-bad-ancount.js
+		test/parallel/test-fs-read-stream.js
 		test/parallel/test-dns-setserver-when-querying.js
 		test/parallel/test-fs-mkdir.js
 		test/parallel/test-fs-utimes-y2K38.js
+		test/parallel/test-fs-watch-recursive-add-file.js
 		test/parallel/test-release-npm.js
 		test/parallel/test-socket-write-after-fin-error.js
 		test/parallel/test-strace-openat-openssl.js

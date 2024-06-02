@@ -1,10 +1,10 @@
-# Copyright 1999-2024 Gentoo Authors
+# Copyright 1999-2023 Gentoo Authors
 # Distributed under the terms of the GNU General Public License v2
 
 EAPI=8
 
 CONFIG_CHECK="~ADVISE_SYSCALLS"
-PYTHON_COMPAT=( python3_{9..12} )
+PYTHON_COMPAT=( python3_{9..11} )
 PYTHON_REQ_USE="threads(+)"
 
 inherit bash-completion-r1 check-reqs flag-o-matic linux-info pax-utils python-any-r1 toolchain-funcs xdg-utils
@@ -24,34 +24,32 @@ else
 	S="${WORKDIR}/node-v${PV}"
 fi
 
-IUSE="corepack cpu_flags_x86_sse2 debug doc +icu inspector lto +npm pax-kernel +snapshot +ssl +system-icu +system-ssl test"
-REQUIRED_USE="inspector? ( icu ssl )
+IUSE="corepack cpu_flags_x86_sse2 debug doc +icu inspector lto +npm pax-kernel +snapshot +ssl +system-icu +system-ssl systemtap test"
+REQUIRED_USE="corepack? ( !npm )
+	inspector? ( icu ssl )
 	npm? ( ssl )
 	system-icu? ( icu )
-	system-ssl? ( ssl )
-	x86? ( cpu_flags_x86_sse2 )"
+	system-ssl? ( ssl )"
 
 RESTRICT="!test? ( test )"
 
 RDEPEND=">=app-arch/brotli-1.0.9:=
-	>=dev-libs/libuv-1.46.0:=
+	>=dev-libs/libuv-1.44.0:=
 	>=net-dns/c-ares-1.18.1:=
-	>=net-libs/nghttp2-1.61.0:=
-	>=net-libs/ngtcp2-1.3.0:=
-	>=dev-libs/simdjson-3.9.1:=
+	>=net-libs/nghttp2-1.41.0:=
 	sys-libs/zlib
 	corepack? ( !sys-apps/yarn )
-	system-icu? ( >=dev-libs/icu-71:= )
+	system-icu? ( >=dev-libs/icu-67:= )
 	system-ssl? ( >=dev-libs/openssl-1.1.1:0= )"
 BDEPEND="${PYTHON_DEPS}
-	app-alternatives/ninja
 	sys-apps/coreutils
 	virtual/pkgconfig
+	systemtap? ( dev-util/systemtap )
 	test? ( net-misc/curl )
 	pax-kernel? ( sys-apps/elfix )"
 DEPEND="${RDEPEND}"
 PATCHES=(
-	"${FILESDIR}/${PN}-18.20.1-clang-fix-libatomic.patch"
+	"${FILESDIR}"/${PN}-16.20.2-clang-fix-libatomic.patch
 )
 
 # These are measured on a loong machine with -ggdb on, and only checked
@@ -65,6 +63,9 @@ CHECKREQS_MEMORY="8G"
 CHECKREQS_DISK_BUILD="22G"
 
 pkg_pretend() {
+	(use x86 && ! use cpu_flags_x86_sse2) && \
+		die "Your CPU doesn't support the required SSE2 instruction."
+
 	if [[ ${MERGE_TYPE} != "binary" ]]; then
 		if is-flagq "-g*" && ! is-flagq "-g*0" ; then
 			einfo "Checking for sufficient disk space and memory to build ${PN} with debugging CFLAGS"
@@ -87,6 +88,9 @@ src_prepare() {
 	# https://code.google.com/p/gyp/issues/detail?id=260
 	sed -i -e "/append('-arch/d" tools/gyp/pylib/gyp/xcode_emulation.py || die
 
+	# less verbose install output (stating the same as portage, basically)
+	sed -i -e "/print/d" tools/install.py || die
+
 	# proper libdir, hat tip @ryanpcmcquen https://github.com/iojs/io.js/issues/504
 	local LIBDIR=$(get_libdir)
 	sed -i -e "s|lib/|${LIBDIR}/|g" tools/install.py || die
@@ -104,7 +108,7 @@ src_prepare() {
 	fi
 
 	# We need to disable mprotect on two files when it builds Bug 694100.
-	use pax-kernel && PATCHES+=( "${FILESDIR}"/${PN}-20.6.0-paxmarking.patch )
+	use pax-kernel && PATCHES+=( "${FILESDIR}"/${PN}-18.16.0-paxmarking.patch )
 
 	default
 }
@@ -118,19 +122,10 @@ src_configure() {
 	append-atomic-flags
 
 	local myconf=(
-		--ninja
-		# ada is not packaged yet
-		# https://github.com/ada-url/ada
-		# --shared-ada
 		--shared-brotli
 		--shared-cares
 		--shared-libuv
 		--shared-nghttp2
-		--shared-ngtcp2
-		--shared-simdjson
-		# sindutf is not packaged yet
-		# https://github.com/simdutf/simdutf
-		# --shared-simdutf
 		--shared-zlib
 	)
 	use debug && myconf+=( --debug )
@@ -171,11 +166,12 @@ src_configure() {
 	"${EPYTHON}" configure.py \
 		--prefix="${EPREFIX}"/usr \
 		--dest-cpu=${myarch} \
+		$(use_with systemtap dtrace) \
 		"${myconf[@]}" || die
 }
 
 src_compile() {
-	emake -Onone
+	emake -C out
 }
 
 src_install() {
@@ -238,16 +234,9 @@ src_install() {
 
 src_test() {
 	local drop_tests=(
-	test/parallel/test-dns-resolveany-bad-ancount.js
 		test/parallel/test-dns-setserver-when-querying.js
 		test/parallel/test-fs-mkdir.js
-		test/parallel/test-fs-read-stream.js
 		test/parallel/test-fs-utimes-y2K38.js
-		test/parallel/test-fs-watch-recursive-add-file.js
-		test/parallel/test-process-euid-egid.js
-		test/parallel/test-process-initgroups.js
-		test/parallel/test-process-setgroups.js
-		test/parallel/test-process-uid-gid.js
 		test/parallel/test-release-npm.js
 		test/parallel/test-socket-write-after-fin-error.js
 		test/parallel/test-strace-openat-openssl.js

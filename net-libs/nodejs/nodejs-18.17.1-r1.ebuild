@@ -1,10 +1,10 @@
-# Copyright 1999-2024 Gentoo Authors
+# Copyright 1999-2023 Gentoo Authors
 # Distributed under the terms of the GNU General Public License v2
 
 EAPI=8
 
 CONFIG_CHECK="~ADVISE_SYSCALLS"
-PYTHON_COMPAT=( python3_{10..11} )
+PYTHON_COMPAT=( python3_{9..11} )
 PYTHON_REQ_USE="threads(+)"
 
 inherit bash-completion-r1 check-reqs flag-o-matic linux-info pax-utils python-any-r1 toolchain-funcs xdg-utils
@@ -20,12 +20,13 @@ if [[ ${PV} == *9999 ]]; then
 else
 	SRC_URI="https://nodejs.org/dist/v${PV}/node-v${PV}.tar.xz"
 	SLOT="0/$(ver_cut 1)"
-	KEYWORDS="~amd64 ~arm ~arm64 ~loong ~ppc64 ~riscv ~x86 ~amd64-linux ~x64-macos"
+	KEYWORDS="amd64 arm arm64 ~loong ppc64 ~riscv x86 ~amd64-linux ~x64-macos"
 	S="${WORKDIR}/node-v${PV}"
 fi
 
 IUSE="corepack cpu_flags_x86_sse2 debug doc +icu inspector lto +npm pax-kernel +snapshot +ssl +system-icu +system-ssl systemtap test"
-REQUIRED_USE="inspector? ( icu ssl )
+REQUIRED_USE="corepack? ( !npm )
+	inspector? ( icu ssl )
 	npm? ( ssl )
 	system-icu? ( icu )
 	system-ssl? ( ssl )"
@@ -43,12 +44,12 @@ RDEPEND=">=app-arch/brotli-1.0.9:=
 BDEPEND="${PYTHON_DEPS}
 	sys-apps/coreutils
 	virtual/pkgconfig
-	systemtap? ( dev-debug/systemtap )
+	systemtap? ( dev-util/systemtap )
 	test? ( net-misc/curl )
 	pax-kernel? ( sys-apps/elfix )"
 DEPEND="${RDEPEND}"
 PATCHES=(
-	"${FILESDIR}/${PN}-18.20.1-clang-fix-libatomic.patch"
+	"${FILESDIR}"/${PN}-16.20.2-clang-fix-libatomic.patch
 )
 
 # These are measured on a loong machine with -ggdb on, and only checked
@@ -86,6 +87,9 @@ src_prepare() {
 	# fix compilation on Darwin
 	# https://code.google.com/p/gyp/issues/detail?id=260
 	sed -i -e "/append('-arch/d" tools/gyp/pylib/gyp/xcode_emulation.py || die
+
+	# less verbose install output (stating the same as portage, basically)
+	sed -i -e "/print/d" tools/install.py || die
 
 	# proper libdir, hat tip @ryanpcmcquen https://github.com/iojs/io.js/issues/504
 	local LIBDIR=$(get_libdir)
@@ -167,7 +171,7 @@ src_configure() {
 }
 
 src_compile() {
-	emake -C out -Onone
+	emake -C out
 }
 
 src_install() {
@@ -230,8 +234,6 @@ src_install() {
 
 src_test() {
 	local drop_tests=(
-		test/parallel/test-dns-resolveany.js
-		test/parallel/test-dns-resolveany-bad-ancount.js
 		test/parallel/test-dns-setserver-when-querying.js
 		test/parallel/test-fs-mkdir.js
 		test/parallel/test-fs-utimes-y2K38.js

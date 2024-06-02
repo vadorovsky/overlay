@@ -1,13 +1,13 @@
-# Copyright 1999-2024 Gentoo Authors
+# Copyright 1999-2023 Gentoo Authors
 # Distributed under the terms of the GNU General Public License v2
 
 EAPI=8
 
 CONFIG_CHECK="~ADVISE_SYSCALLS"
-PYTHON_COMPAT=( python3_{9..12} )
+PYTHON_COMPAT=( python3_{9..11} )
 PYTHON_REQ_USE="threads(+)"
 
-inherit bash-completion-r1 check-reqs flag-o-matic linux-info pax-utils python-any-r1 toolchain-funcs xdg-utils
+inherit bash-completion-r1 flag-o-matic linux-info pax-utils python-any-r1 toolchain-funcs xdg-utils
 
 DESCRIPTION="A JavaScript runtime built on Chrome's V8 JavaScript engine"
 HOMEPAGE="https://nodejs.org/"
@@ -20,55 +20,39 @@ if [[ ${PV} == *9999 ]]; then
 else
 	SRC_URI="https://nodejs.org/dist/v${PV}/node-v${PV}.tar.xz"
 	SLOT="0/$(ver_cut 1)"
-	KEYWORDS="~amd64 ~arm ~arm64 ~loong ~ppc64 ~riscv ~x86 ~amd64-linux ~x64-macos"
+	KEYWORDS="amd64 arm arm64 ppc64 ~riscv x86 ~amd64-linux ~x64-macos"
 	S="${WORKDIR}/node-v${PV}"
 fi
 
-IUSE="corepack cpu_flags_x86_sse2 debug doc +icu inspector lto +npm pax-kernel +snapshot +ssl +system-icu +system-ssl test"
+IUSE="cpu_flags_x86_sse2 debug doc +icu inspector lto +npm pax-kernel +snapshot +ssl +system-icu +system-ssl systemtap test"
 REQUIRED_USE="inspector? ( icu ssl )
 	npm? ( ssl )
 	system-icu? ( icu )
-	system-ssl? ( ssl )
-	x86? ( cpu_flags_x86_sse2 )"
+	system-ssl? ( ssl )"
 
 RESTRICT="!test? ( test )"
 
 RDEPEND=">=app-arch/brotli-1.0.9:=
-	>=dev-libs/libuv-1.46.0:=
+	>=dev-libs/libuv-1.40.0:=
 	>=net-dns/c-ares-1.18.1:=
 	>=net-libs/nghttp2-1.41.0:=
 	sys-libs/zlib
-	corepack? ( !sys-apps/yarn )
-	system-icu? ( >=dev-libs/icu-71:= )
+	system-icu? ( >=dev-libs/icu-67:= )
 	system-ssl? ( >=dev-libs/openssl-1.1.1:0= )"
 BDEPEND="${PYTHON_DEPS}
-	app-alternatives/ninja
 	sys-apps/coreutils
 	virtual/pkgconfig
+	systemtap? ( dev-util/systemtap )
 	test? ( net-misc/curl )
 	pax-kernel? ( sys-apps/elfix )"
 DEPEND="${RDEPEND}"
 PATCHES=(
-	"${FILESDIR}/${PN}-18.20.1-clang-fix-libatomic.patch"
+	"${FILESDIR}"/${PN}-16.20.2-clang-fix-libatomic.patch
 )
 
-# These are measured on a loong machine with -ggdb on, and only checked
-# if debugging flags are present in CFLAGS.
-#
-# The final link consumed a little more than 7GiB alone, so 8GiB is the lower
-# limit for memory usage. Disk usage was 19.1GiB for the build directory and
-# 1.2GiB for the installed image, so we leave some room for architectures with
-# fatter binaries and set the disk requirement to 22GiB.
-CHECKREQS_MEMORY="8G"
-CHECKREQS_DISK_BUILD="22G"
-
 pkg_pretend() {
-	if [[ ${MERGE_TYPE} != "binary" ]]; then
-		if is-flagq "-g*" && ! is-flagq "-g*0" ; then
-			einfo "Checking for sufficient disk space and memory to build ${PN} with debugging CFLAGS"
-			check-reqs_pkg_pretend
-		fi
-	fi
+	(use x86 && ! use cpu_flags_x86_sse2) && \
+		die "Your CPU doesn't support the required SSE2 instruction."
 }
 
 pkg_setup() {
@@ -84,6 +68,9 @@ src_prepare() {
 	# fix compilation on Darwin
 	# https://code.google.com/p/gyp/issues/detail?id=260
 	sed -i -e "/append('-arch/d" tools/gyp/pylib/gyp/xcode_emulation.py || die
+
+	# less verbose install output (stating the same as portage, basically)
+	sed -i -e "/print/d" tools/install.py || die
 
 	# proper libdir, hat tip @ryanpcmcquen https://github.com/iojs/io.js/issues/504
 	local LIBDIR=$(get_libdir)
@@ -102,7 +89,7 @@ src_prepare() {
 	fi
 
 	# We need to disable mprotect on two files when it builds Bug 694100.
-	use pax-kernel && PATCHES+=( "${FILESDIR}"/${PN}-20.6.0-paxmarking.patch )
+	use pax-kernel && PATCHES+=( "${FILESDIR}"/${PN}-16.4.2-paxmarking.patch )
 
 	default
 }
@@ -116,7 +103,6 @@ src_configure() {
 	append-atomic-flags
 
 	local myconf=(
-		--ninja
 		--shared-brotli
 		--shared-cares
 		--shared-libuv
@@ -132,7 +118,6 @@ src_configure() {
 	else
 		myconf+=( --with-intl=none )
 	fi
-	use corepack || myconf+=( --without-corepack )
 	use inspector || myconf+=( --without-inspector )
 	use npm || myconf+=( --without-npm )
 	use snapshot || myconf+=( --without-node-snapshot )
@@ -143,15 +128,14 @@ src_configure() {
 	fi
 
 	local myarch=""
-	case "${ARCH}:${ABI}" in
-		*:amd64) myarch="x64";;
-		*:arm) myarch="arm";;
-		*:arm64) myarch="arm64";;
-		loong:lp64*) myarch="loong64";;
-		riscv:lp64*) myarch="riscv64";;
-		*:ppc64) myarch="ppc64";;
-		*:x32) myarch="x32";;
-		*:x86) myarch="ia32";;
+	case ${ABI} in
+		amd64) myarch="x64";;
+		arm) myarch="arm";;
+		arm64) myarch="arm64";;
+		lp64*) myarch="riscv64";;
+		ppc64) myarch="ppc64";;
+		x32) myarch="x32";;
+		x86) myarch="ia32";;
 		*) myarch="${ABI}";;
 	esac
 
@@ -161,11 +145,12 @@ src_configure() {
 	"${EPYTHON}" configure.py \
 		--prefix="${EPREFIX}"/usr \
 		--dest-cpu=${myarch} \
+		$(use_with systemtap dtrace) \
 		"${myconf[@]}" || die
 }
 
 src_compile() {
-	emake -Onone
+	emake -C out
 }
 
 src_install() {
@@ -220,30 +205,20 @@ src_install() {
 			\) \) -exec rm -rf "{}" \;
 	fi
 
-	use corepack &&
-		"${D}"/usr/bin/corepack enable --install-directory "${D}"/usr/bin
-
 	mv "${ED}"/usr/share/doc/node "${ED}"/usr/share/doc/${PF} || die
 }
 
 src_test() {
 	local drop_tests=(
-	test/parallel/test-dns-resolveany-bad-ancount.js
 		test/parallel/test-dns-setserver-when-querying.js
 		test/parallel/test-fs-mkdir.js
-		test/parallel/test-fs-read-stream.js
 		test/parallel/test-fs-utimes-y2K38.js
-		test/parallel/test-fs-watch-recursive-add-file.js
-		test/parallel/test-process-euid-egid.js
-		test/parallel/test-process-initgroups.js
-		test/parallel/test-process-setgroups.js
-		test/parallel/test-process-uid-gid.js
 		test/parallel/test-release-npm.js
 		test/parallel/test-socket-write-after-fin-error.js
-		test/parallel/test-strace-openat-openssl.js
+		test/parallel/test-tls-streamwrap-buffersize.js
 		test/sequential/test-util-debug.js
 	)
-	rm -f "${drop_tests[@]}" || die "disabling tests failed"
+	rm -f "${drop_tests[@]}"
 
 	out/${BUILDTYPE}/cctest || die
 	"${EPYTHON}" tools/test.py --mode=${BUILDTYPE,,} --flaky-tests=dontcare -J message parallel sequential || die
