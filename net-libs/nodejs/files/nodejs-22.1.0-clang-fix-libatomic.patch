@@ -1,0 +1,32 @@
+From d7dfc8eb9823d9038f214a752eeeaa32a3f78b91 Mon Sep 17 00:00:00 2001
+From: Michal Rostecki <vadorovsky@protonmail.com>
+Date: Sun, 2 Jun 2024 06:03:59 +0200
+Subject: [PATCH] build: Don't add `-latomic` for clang
+
+compiler-rt supports `__atomic_is_lock_free` since LLVM 12[0]. Requiring
+`-latomic` on clang builds introduces a dependency on libgcc, which is
+often undesirable on LLVM-based build environments. This change makes
+sure it's never added in clang builds, so it can use the compiler-rt's
+implementation.
+
+[0] https://github.com/llvm/llvm-project/commit/00530dee5d1295dc20ebafdd9a8a79662f41513e
+---
+ tools/v8_gypfiles/v8.gyp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tools/v8_gypfiles/v8.gyp b/tools/v8_gypfiles/v8.gyp
+index 1e2b364513..4661137958 100644
+--- a/tools/v8_gypfiles/v8.gyp
++++ b/tools/v8_gypfiles/v8.gyp
+@@ -1227,7 +1227,7 @@
+         }],
+         # Platforms that don't have Compare-And-Swap (CAS) support need to link atomic library
+         # to implement atomic memory access
+-        ['v8_current_cpu in ["mips64", "mips64el", "ppc", "arm", "riscv64", "loong64"]', {
++        ['clang==0 and v8_current_cpu in ["mips64", "mips64el", "ppc", "arm", "riscv64", "loong64"]', {
+           'link_settings': {
+             'libraries': ['-latomic', ],
+           },
+-- 
+2.44.2
+

@@ -62,7 +62,7 @@ CHECKREQS_MEMORY="8G"
 CHECKREQS_DISK_BUILD="22G"
 
 PATCHES=(
-	"${FILESDIR}"/${PN}-16.20.2-clang-fix-libatomic.patch
+	"${FILESDIR}"/${PN}-22.1.0-clang-fix-libatomic.patch
 	"${WORKDIR}"/nodejs-22.1.0-deps-import-simdjson-3.9.1-for-GCC-14.patch
 )
 
