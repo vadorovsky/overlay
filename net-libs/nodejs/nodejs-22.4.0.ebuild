@@ -63,7 +63,7 @@ CHECKREQS_MEMORY="8G"
 CHECKREQS_DISK_BUILD="22G"
 
 PATCHES=(
-	"${FILESDIR}"/${PN}-22.1.0-clang-fix-libatomic.patch
+	"${FILESDIR}"/${PN}-22.3.0-clang-fix-libatomic.patch
 	)
 
 pkg_pretend() {
