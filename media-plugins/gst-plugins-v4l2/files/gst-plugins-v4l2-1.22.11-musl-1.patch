@@ -1,0 +1,39 @@
+From 2d0abfdd204b28a2140df057df78fb8a5ceab0c9 Mon Sep 17 00:00:00 2001
+From: Michal Rostecki <vadorovsky@protonmail.com>
+Date: Wed, 4 Sep 2024 17:20:48 +0200
+Subject: [PATCH] v4l2: Define HAVE_POSIX_IOCTL during the build
+
+libv4l uses the HAVE_POSIX_IOCTL header to figure out whether it should
+use the POSIX or GNU definition of ioctl.
+
+Without it being defined on systems with POSIX-compliant libs (e.g. musl),
+the build of the v4l2 plugin fails, as libv4l2 expects the glibc
+definition.
+
+Link: https://bugs.gentoo.org/896418
+---
+ subprojects/gst-plugins-good/sys/v4l2/meson.build | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/sys/v4l2/meson.build b/sys/v4l2/meson.build
+index 6ece251b5e..0e2b7388de 100644
+--- a/sys/v4l2/meson.build
++++ b/sys/v4l2/meson.build
+@@ -60,6 +60,14 @@ if have_v4l2
+   libv4l2_dep = dependency('libv4l2', required : get_option('v4l2-libv4l2'))
+   cdata.set('HAVE_LIBV4L2', libv4l2_dep.found())
+ 
++  ioctl_posix_test = '''
++  #include <sys/ioctl.h>
++  int ioctl (int, int, ...);
++  '''
++  if cc.compiles(ioctl_posix_test)
++    cdata.set('HAVE_POSIX_IOCTL', 1)
++  endif
++
+   gstv4l2 = library('gstvideo4linux2',
+     v4l2_sources,
+     c_args : gst_plugins_good_args,
+-- 
+2.44.2
+
