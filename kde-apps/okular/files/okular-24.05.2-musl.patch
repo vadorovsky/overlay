@@ -1,0 +1,28 @@
+From 8b5cba4ca7c6d71ad2a4ce7a7485d2aa1316d455 Mon Sep 17 00:00:00 2001
+From: Michal Rostecki <vadorovsky@protonmail.com>
+Date: Thu, 5 Sep 2024 09:34:25 +0200
+Subject: [PATCH] Fix build with clang and musl
+
+musl provides vasprintf only if _GNU_SOURCE is defined.
+
+CCBUG: 492670
+---
+ core/synctex/synctex_parser.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/core/synctex/synctex_parser.c b/core/synctex/synctex_parser.c
+index 9eed566b3..b037dcb21 100644
+--- a/core/synctex/synctex_parser.c
++++ b/core/synctex/synctex_parser.c
+@@ -67,6 +67,8 @@
+ #endif
+ #endif
+ 
++#define _GNU_SOURCE
++
+ #include <errno.h>
+ #include <limits.h>
+ #include <stdarg.h>
+-- 
+2.44.2
+
