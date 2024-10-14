@@ -21,9 +21,10 @@ DEPEND="
 "
 BDEPEND="
 	>=dev-build/cmake-3.16
+	dev-util/patchelf
 "
 
-LLVM_COMPONENTS=( compiler-rt cmake llvm/cmake llvm-libgcc )
+LLVM_COMPONENTS=( llvm-libgcc runtimes compiler-rt cmake libunwind libcxx llvm/cmake )
 llvm.org_set_globals
 
 pkg_setup() {
@@ -42,15 +43,10 @@ src_configure() {
 	# pre-set since we need to pass it to cmake
 	BUILD_DIR=${WORKDIR}/${P}_build
 
-	# NOTE(vadorovsky): This check is failing when cross-compiling.
-	# if ! tc-is-clang ; then
-	# 	die "this package is for clang only system"
-	# fi
-
 	strip-unsupported-flags
 
 	local mycmakeargs=(
-		-DCOMPILER_RT_INSTALL_PATH="${EPREFIX}/usr/lib/"
+		-DCOMPILER_RT_INSTALL_PATH="${EPREFIX}/usr/lib/clang/${LLVM_MAJOR}"
 
 		-DCOMPILER_RT_INCLUDE_TESTS=OFF
 		-DCOMPILER_RT_BUILD_LIBFUZZER=OFF
@@ -60,6 +56,8 @@ src_configure() {
 		-DCOMPILER_RT_BUILD_SANITIZERS=OFF
 		-DCOMPILER_RT_BUILD_XRAY=OFF
 		-DCOMPILER_RT_BUILTINS_HIDE_SYMBOLS=OFF
+
+		-DLLVM_LIBGCC_EXPLICIT_OPT_IN=ON
 	)
 
 	if use amd64; then
@@ -95,38 +93,35 @@ src_configure() {
 src_compile() {
 	cmake_src_compile
 
-	# For host builds, compiler-rt builtins are in ${BUILD_DIR}/lib/linux directory.
-	# For cross builds, a target triple is used instead of "linux", so they are in
-	# ${BUILD_DIR}/lib/${CTARGET} (e.g. ${BUILD_DIR}/lib/aarch64-gentoo-linux-musl).
-	RT_BUILTINS_DIR="linux"
-	if target_is_not_host || tc-is-cross-compiler ; then
-		RT_BUILTINS_DIR="${CTARGET}"
-	fi
-
-	shopt -s nullglob
-	$(tc-getCC) --target=${CTARGET} --sysroot=${ESYSROOT} \
-		-E -xc ${WORKDIR}/llvm-libgcc/lib/gcc_s.ver -o ${BUILD_DIR}/gcc_s.ver || die
-	$(tc-getCC) --target=${CTARGET} --sysroot=${ESYSROOT} ${LDFLAGS} -nostdlib \
-		-Wl,-znodelete,-zdefs -Wl,--version-script,${BUILD_DIR}/gcc_s.ver \
-		-Wl,--whole-archive "${ESYSROOT}"/usr/lib/libunwind.a ${BUILD_DIR}/lib/${RT_BUILTINS_DIR}/libclang_rt.builtins*.a \
-		-Wl,-soname,libgcc_s.so.1.0 -lc -shared -o ${BUILD_DIR}/libgcc_s.so.1.0
-	shopt -u nullglob
+	patchelf --set-soname libgcc_s.so.1 ${BUILD_DIR}/lib/libunwind.so.1.0
 }
 
 src_install() {
-	# For host builds, compiler-rt builtins are in ${BUILD_DIR}/lib/linux directory.
-	# For cross builds, a target triple is used instead of "linux", so they are in
-	# ${BUILD_DIR}/lib/${CTARGET} (e.g. ${BUILD_DIR}/lib/aarch64-gentoo-linux-musl).
+	# The way how llvm-libgcc upstream envisions the installation is:
+	#
+	# - Installation of libclang_rt.builtins*.a and libunwind.{a,so} files
+	#   produced by the llvm-libgcc build. These libraries contain the GNU
+	#   symbols and are **not** the same as they would be if you build them
+	#   without llvm-libgcc enabled.
+	# - Creating symlinks:
+	#   - libgcc.a -> libclang_rt.builtins*.a
+	#   - libgcc_eh.a -> libunwind.a
+	#   - libgcc_s.so -> libunwind.so
+	#
+	# However, in our case we don't want to replace the compiler-rt and libunwind
+	# libraries coming from the main Gentoo ebuilds. We just want to keep the
+	# libgcc_s replacement libraries alongside. Therefore, instead of making
+	# symlinks, we install these libraries directly with the GNU-compatible names.
 	RT_BUILTINS_DIR="linux"
 	if target_is_not_host || tc-is-cross-compiler ; then
 		RT_BUILTINS_DIR="${CTARGET}"
 	fi
 
 	shopt -s nullglob
-	dolib.so ${BUILD_DIR}/libgcc_s.so.1.0
-	newlib.a ${BUILD_DIR}/lib/${RT_BUILTINS_DIR}/libclang_rt.builtins*.a libgcc.a
+	newlib.a ${BUILD_DIR}/compiler-rt/lib/${RT_BUILTINS_DIR}/libclang_rt.builtins*.a libgcc.a
+	newlib.a ${BUILD_DIR}/lib/libunwind.a libgcc_eh.a
+	newlib.so ${BUILD_DIR}/lib/libunwind.so.1.0 libgcc_s.so.1.0
 	dosym libgcc_s.so.1.0 /usr/lib/libgcc_s.so.1
 	dosym libgcc_s.so.1 /usr/lib/libgcc_s.so
-	dosym libunwind.a /usr/lib/libgcc_eh.a
 	shopt -u nullglob
 }
