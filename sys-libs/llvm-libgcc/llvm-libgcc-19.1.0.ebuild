@@ -24,7 +24,7 @@ BDEPEND="
 	dev-util/patchelf
 "
 
-LLVM_COMPONENTS=( llvm-libgcc runtimes compiler-rt cmake libunwind libcxx llvm/cmake )
+LLVM_COMPONENTS=( runtimes llvm-libgcc compiler-rt cmake libunwind libcxx llvm/cmake )
 llvm.org_set_globals
 
 pkg_setup() {
@@ -56,7 +56,13 @@ src_configure() {
 		-DCOMPILER_RT_BUILD_SANITIZERS=OFF
 		-DCOMPILER_RT_BUILD_XRAY=OFF
 		-DCOMPILER_RT_BUILTINS_HIDE_SYMBOLS=OFF
+		# It breaks on musl with "undefined symbol: __getauxval" error.
+		-DCOMPILER_RT_HAS_AARCH64_SME=OFF
 
+		-DLIBUNWIND_ENABLE_CROSS_UNWINDING=ON
+
+		-DLLVM_ENABLE_RUNTIMES="llvm-libgcc"
+		-DLLVM_INCLUDE_TESTS=OFF
 		-DLLVM_LIBGCC_EXPLICIT_OPT_IN=ON
 	)
 
@@ -75,11 +81,6 @@ src_configure() {
 			# and fail due to no builtins.
 			-DCMAKE_C_COMPILER_WORKS=1
 			-DCMAKE_CXX_COMPILER_WORKS=1
-
-			# Without this, compiler-rt install location is not unique
-			# to target triples, only to architecture.
-			# Needed if you want to target multiple libcs for one arch.
-			-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON
 
 			-DCMAKE_ASM_COMPILER_TARGET="${CTARGET}"
 			-DCMAKE_C_COMPILER_TARGET="${CTARGET}"
@@ -112,13 +113,9 @@ src_install() {
 	# libraries coming from the main Gentoo ebuilds. We just want to keep the
 	# libgcc_s replacement libraries alongside. Therefore, instead of making
 	# symlinks, we install these libraries directly with the GNU-compatible names.
-	RT_BUILTINS_DIR="linux"
-	if target_is_not_host || tc-is-cross-compiler ; then
-		RT_BUILTINS_DIR="${CTARGET}"
-	fi
 
 	shopt -s nullglob
-	newlib.a ${BUILD_DIR}/compiler-rt/lib/${RT_BUILTINS_DIR}/libclang_rt.builtins*.a libgcc.a
+	newlib.a ${BUILD_DIR}/compiler-rt/lib/linux/libclang_rt.builtins*.a libgcc.a
 	newlib.a ${BUILD_DIR}/lib/libunwind.a libgcc_eh.a
 	newlib.so ${BUILD_DIR}/lib/libunwind.so.1.0 libgcc_s.so.1.0
 	dosym libgcc_s.so.1.0 /usr/lib/libgcc_s.so.1
