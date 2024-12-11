@@ -49,7 +49,7 @@ RDEPEND="
 	sys-apps/lsb-release
 	|| (
 		sys-devel/gcc:*
-		sys-libs/llvm-libgcc
+		llvm-runtime/llvm-libgcc
 	)
 	!dev-lang/rust:stable
 	!dev-lang/rust-bin:stable
