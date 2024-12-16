@@ -16,7 +16,7 @@ IUSE="+abi_x86_32 abi_x86_64 debug"
 DEPEND="
 	llvm-core/llvm:${LLVM_MAJOR}
 	=llvm-runtimes/compiler-rt-${LLVM_VERSION}*
-	=llvm-runtimes/llvm-libunwind-${LLVM_VERSION}*[static-libs]
+	=llvm-runtimes/libunwind-${LLVM_VERSION}*[static-libs]
 	!!sys-devel/gcc
 "
 BDEPEND="
