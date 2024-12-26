@@ -3,49 +3,61 @@
 
 EAPI=8
 
-inherit multilib prefix rust-toolchain toolchain-funcs verify-sig multilib-minimal
+LLVM_COMPAT=( 19 )
+LLVM_OPTIONAL="yes"
+
+inherit cmake llvm-r1 multilib prefix rust-toolchain toolchain-funcs
+inherit verify-sig multilib-minimal optfeature
+
+LLVM_VERSION="19.1.4"
 
 MY_P="rust-${PV}"
 # curl -L static.rust-lang.org/dist/channel-rust-${PV}.toml 2>/dev/null | grep "xz_url.*rust-src"
-MY_SRC_URI="${RUST_TOOLCHAIN_BASEURL%/}/2023-12-07/rust-src-${PV}.tar.xz"
-GENTOO_BIN_BASEURI="https://dev.gentoo.org/~sam/distfiles/${CATEGORY}/${PN}" # omit leading slash
+MY_SRC_URI="${RUST_TOOLCHAIN_BASEURL%/}/2024-10-17/rust-src-${PV}.tar.xz"
+GENTOO_BIN_BASEURI="https://dev.gentoo.org/~arthurzam/distfiles/${CATEGORY}/${PN}" # omit leading slash
+LLVM_URI="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/llvm-project-${LLVM_VERSION}.src.tar.xz"
 
-DESCRIPTION="Language empowering everyone to build reliable and efficient software"
+DESCRIPTION="Systems programming language from Mozilla"
 HOMEPAGE="https://www.rust-lang.org/"
 SRC_URI="$(rust_all_arch_uris ${MY_P})
+	llvm-libgcc? ( ${LLVM_URI} -> llvm-project-${LLVM_VERSION}.src.tar.xz )
 	rust-src? ( ${MY_SRC_URI} )
 "
 # Keep this separate to allow easy commenting out if not yet built
 SRC_URI+=" sparc? ( ${GENTOO_BIN_BASEURI}/${MY_P}-sparc64-unknown-linux-gnu.tar.xz ) "
-#SRC_URI+=" mips? (
-#	abi_mips_o32? (
-#		big-endian?  ( ${GENTOO_BIN_BASEURI}/${MY_P}-mips-unknown-linux-gnu.tar.xz )
-#		!big-endian? ( ${GENTOO_BIN_BASEURI}/${MY_P}-mipsel-unknown-linux-gnu.tar.xz )
-#	)
-#	abi_mips_n64? (
-#		big-endian?  ( ${GENTOO_BIN_BASEURI}/${MY_P}-mips64-unknown-linux-gnuabi64.tar.xz )
-#		!big-endian? ( ${GENTOO_BIN_BASEURI}/${MY_P}-mips64el-unknown-linux-gnuabi64.tar.xz )
-#	)
-#)"
+SRC_URI+=" mips? (
+	abi_mips_o32? (
+		big-endian?  ( ${GENTOO_BIN_BASEURI}/${MY_P}-mips-unknown-linux-gnu.tar.xz )
+		!big-endian? ( ${GENTOO_BIN_BASEURI}/${MY_P}-mipsel-unknown-linux-gnu.tar.xz )
+	)
+	abi_mips_n64? (
+		big-endian?  ( ${GENTOO_BIN_BASEURI}/${MY_P}-mips64-unknown-linux-gnuabi64.tar.xz )
+		!big-endian? ( ${GENTOO_BIN_BASEURI}/${MY_P}-mips64el-unknown-linux-gnuabi64.tar.xz )
+	)
+)"
+SRC_URI+=" riscv? (
+	elibc_musl? ( ${GENTOO_BIN_BASEURI}/${MY_P}-riscv64gc-unknown-linux-musl.tar.xz )
+)"
+SRC_URI+=" ppc64? ( elibc_musl? (
+	big-endian?  ( ${GENTOO_BIN_BASEURI}/${MY_P}-powerpc64-unknown-linux-musl.tar.xz )
+	!big-endian? ( ${GENTOO_BIN_BASEURI}/${MY_P}-powerpc64le-unknown-linux-musl.tar.xz )
+) )"
 
 LICENSE="|| ( MIT Apache-2.0 ) BSD BSD-1 BSD-2 BSD-4"
-SLOT="stable"
-KEYWORDS="amd64 arm arm64 ~loong ppc ppc64 ~riscv ~s390 sparc x86"
-IUSE="big-endian clippy cpu_flags_x86_sse2 doc prefix rust-analyzer rust-src rustfmt"
-
-DEPEND=""
+SLOT="${PV}"
+KEYWORDS="amd64 arm arm64 ~loong ~mips ppc ppc64 ~riscv ~s390 sparc x86"
+IUSE="big-endian clippy cpu_flags_x86_sse2 doc llvm-libgcc prefix rust-analyzer rust-src rustfmt"
 
 RDEPEND="
 	>=app-eselect/eselect-rust-20190311
 	dev-libs/openssl
 	sys-apps/lsb-release
-	|| (
-		sys-devel/gcc:*
-		llvm-runtime/llvm-libgcc
-	)
+	!llvm-libgcc? ( sys-devel/gcc:* )
+	!dev-lang/rust:stable
+	!dev-lang/rust-bin:stable
 "
-
 BDEPEND="
+	llvm-libgcc? ( dev-util/patchelf )
 	prefix? ( dev-util/patchelf )
 	verify-sig? ( sec-keys/openpgp-keys-rust )
 "
@@ -58,7 +70,7 @@ RESTRICT="strip"
 
 QA_PREBUILT="
 	opt/${P}/bin/.*
-	opt/${P}/lib/.*.so
+	opt/${P}/lib/.*.so*
 	opt/${P}/libexec/.*
 	opt/${P}/lib/rustlib/.*/bin/.*
 	opt/${P}/lib/rustlib/.*/lib/.*
@@ -91,6 +103,71 @@ src_unpack() {
 	default_src_unpack
 
 	mv "${WORKDIR}/${MY_P}-$(rust_abi)" "${S}" || die
+}
+
+src_prepare() {
+	eapply_user
+	if use llvm-libgcc ; then
+		# Install llvm-libgcc (libunwind with compiler-rt and GNU symbols) as a local
+		# replacement for libgcc_s. Hopefully we can get rid of this hack once we
+		# figure out the proper way of providing llvm-libgcc system-wide, see
+		# #946486.
+		pushd "${WORKDIR}/llvm-project-${LLVM_VERSION}.src"
+		CMAKE_USE_DIR="${WORKDIR}/llvm-project-${LLVM_VERSION}.src/llvm-libgcc"
+		cmake_src_prepare
+		popd
+	fi
+}
+
+multilib_src_configure() {
+  if use llvm-libgcc ; then
+		# Install llvm-libgcc (libunwind with compiler-rt and GNU symbols) as a local
+		# replacement for libgcc_s. Hopefully we can get rid of this hack once we
+		# figure out the proper way of providing llvm-libgcc system-wide, see
+		# #946486.
+		pushd "${WORKDIR}/llvm-project-${LLVM_VERSION}.src"
+
+    # LLVM_ENABLE_ASSERTIONS=NO does not guarantee this for us, #614844
+	  local -x CPPFLAGS="${CPPFLAGS} -DNDEBUG"
+
+	  local mycmakeargs=(
+			-DCOMPILER_RT_EXCLUDE_ATOMIC_BUILTIN=OFF
+			-DCOMPILER_RT_INCLUDE_TESTS=OFF
+			-DCOMPILER_RT_BUILD_CTX_PROFILE=OFF
+			-DCOMPILER_RT_BUILD_LIBFUZZER=OFF
+			-DCOMPILER_RT_BUILD_MEMPROF=OFF
+			-DCOMPILER_RT_BUILD_ORC=OFF
+			-DCOMPILER_RT_BUILD_PROFILE=OFF
+			-DCOMPILER_RT_BUILD_SANITIZERS=OFF
+			-DCOMPILER_RT_BUILD_XRAY=OFF
+
+	  	-DLLVM_INCLUDE_TESTS=OFF
+	  	-DLLVM_LIBGCC_EXPLICIT_OPT_IN=ON
+	  )
+
+	  if use amd64; then
+	  	mycmakeargs+=(
+	  		-DCAN_TARGET_i386=$(usex abi_x86_32)
+	  		-DCAN_TARGET_x86_64=$(usex abi_x86_64)
+	  	)
+	  fi
+
+	  cmake_src_configure
+
+		popd
+	fi
+}
+
+multilib_src_compile() {
+  if use llvm-libgcc ; then
+		# Install llvm-libgcc (libunwind with compiler-rt and GNU symbols) as a local
+		# replacement for libgcc_s. Hopefully we can get rid of this hack once we
+		# figure out the proper way of providing llvm-libgcc system-wide, see
+		# #946486.
+		pushd "${WORKDIR}/llvm-project-${LLVM_VERSION}.src"
+    cmake_src_compile
+		popd
+  fi
 }
 
 patchelf_for_bin() {
@@ -131,14 +208,16 @@ multilib_src_install() {
 		--disable-ldconfig \
 		|| die
 
+	docompress /opt/${P}/man/
+
 	if use prefix; then
-		local interpreter=$(patchelf --print-interpreter "${EPREFIX}/bin/bash")
+		local interpreter=$(patchelf --print-interpreter "${EPREFIX}"/bin/bash)
 		ebegin "Changing interpreter to ${interpreter} for Gentoo prefix at ${ED}/opt/${P}/bin"
 		find "${ED}/opt/${P}/bin" -type f -print0 | \
 			while IFS=  read -r -d '' filename; do
 				patchelf_for_bin ${filename} ${interpreter} \; || die
 			done
-		eend $?
+		eend ${PIPESTATUS[0]}
 	fi
 
 	local symlinks=(
@@ -175,8 +254,8 @@ multilib_src_install() {
 	CARGO_TRIPLET="${CARGO_TRIPLET//-/_}"
 	CARGO_TRIPLET="${CARGO_TRIPLET^^}"
 	cat <<-_EOF_ > "${T}/50${P}"
-	LDPATH="${EPREFIX}/usr/lib/rust/lib"
-	MANPATH="${EPREFIX}/usr/lib/rust/man"
+	LDPATH="${EPREFIX}/usr/lib/rust/lib-bin-${PV}"
+	MANPATH="${EPREFIX}/usr/lib/rust/man-bin-${PV}"
 	$(usev elibc_musl "CARGO_TARGET_${CARGO_TRIPLET}_RUSTFLAGS=\"-C target-feature=-crt-static\"")
 	_EOF_
 	doenvd "${T}/50${P}"
@@ -221,20 +300,41 @@ multilib_src_install() {
 
 	# BUG: installs x86_64 binary on other arches
 	rm -f "${ED}/opt/${P}/lib/rustlib/"*/bin/rust-llvm-dwp || die
+
+	if use llvm-libgcc ; then
+		# Install llvm-libgcc (libunwind with compiler-rt and GNU symbols) as a local
+		# replacement for libgcc_s. Hopefully we can get rid of this hack once we
+		# figure out the proper way of providing llvm-libgcc system-wide, see
+		# #946486.
+		ebegin "Replacing libgcc_s with libunwind (llvm-libgcc)"
+
+		mkdir -p "${ED}/opt/${P}/lib/runtime"
+		cp "${BUILD_DIR}/lib/libunwind.so.1.0" "${ED}/opt/${P}/lib/runtime/libunwind.so.1"
+
+		find "${ED}/opt/${P}"/{bin,lib,libexec} -type f -print0 | \
+			while IFS=  read -r -d '' filename; do
+				# just ignore wrong filetype error, instead of checking redundantly
+				patchelf --replace-needed libgcc_s.so.1 \
+					"${EPREFIX}/opt/${P}/lib/runtime/libunwind.so.1" ${filename} 2>/dev/null
+			done
+		eend ${PIPESTATUS[0]}
+	fi
 }
 
 pkg_postinst() {
 	eselect rust update
 
-	elog "Rust installs a helper script for calling GDB now,"
-	elog "for your convenience it is installed under /usr/bin/rust-gdb-bin-${PV}."
+	if has_version dev-debug/gdb || has_version llvm-core/lldb; then
+		elog "Rust installs helper scripts for calling GDB and LLDB,"
+		elog "for convenience they are installed under /usr/bin/rust-{gdb,lldb}-${PV}."
+	fi
 
 	if has_version app-editors/emacs; then
-		elog "install app-emacs/rust-mode to get emacs support for rust."
+		optfeature "emacs support for rust" app-emacs/rust-mode
 	fi
 
 	if has_version app-editors/gvim || has_version app-editors/vim; then
-		elog "install app-vim/rust-vim to get vim support for rust."
+		optfeature "vim support for rust" app-vim/rust-vim
 	fi
 }
 
