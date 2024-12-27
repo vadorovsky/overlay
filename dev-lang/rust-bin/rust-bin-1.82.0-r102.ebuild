@@ -6,21 +6,16 @@ EAPI=8
 LLVM_COMPAT=( 19 )
 LLVM_OPTIONAL="yes"
 
-inherit cmake llvm-r1 multilib prefix rust-toolchain toolchain-funcs
-inherit verify-sig multilib-minimal optfeature
-
-LLVM_VERSION="19.1.4"
+inherit llvm-r1 multilib prefix rust-toolchain toolchain-funcs verify-sig multilib-minimal optfeature
 
 MY_P="rust-${PV}"
 # curl -L static.rust-lang.org/dist/channel-rust-${PV}.toml 2>/dev/null | grep "xz_url.*rust-src"
 MY_SRC_URI="${RUST_TOOLCHAIN_BASEURL%/}/2024-10-17/rust-src-${PV}.tar.xz"
 GENTOO_BIN_BASEURI="https://dev.gentoo.org/~arthurzam/distfiles/${CATEGORY}/${PN}" # omit leading slash
-LLVM_URI="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/llvm-project-${LLVM_VERSION}.src.tar.xz"
 
 DESCRIPTION="Systems programming language from Mozilla"
 HOMEPAGE="https://www.rust-lang.org/"
 SRC_URI="$(rust_all_arch_uris ${MY_P})
-	llvm-libgcc? ( ${LLVM_URI} -> llvm-project-${LLVM_VERSION}.src.tar.xz )
 	rust-src? ( ${MY_SRC_URI} )
 "
 # Keep this separate to allow easy commenting out if not yet built
@@ -45,19 +40,21 @@ SRC_URI+=" ppc64? ( elibc_musl? (
 
 LICENSE="|| ( MIT Apache-2.0 ) BSD BSD-1 BSD-2 BSD-4"
 SLOT="${PV}"
-KEYWORDS="amd64 arm arm64 ~loong ~mips ppc ppc64 ~riscv ~s390 sparc x86"
-IUSE="big-endian clippy cpu_flags_x86_sse2 doc llvm-libgcc prefix rust-analyzer rust-src rustfmt"
+KEYWORDS="~amd64 ~arm ~arm64 ~loong ~mips ~ppc ~ppc64 ~riscv ~s390 ~sparc ~x86"
+IUSE="big-endian clippy cpu_flags_x86_sse2 doc prefix rust-analyzer rust-src rustfmt"
 
 RDEPEND="
 	>=app-eselect/eselect-rust-20190311
 	dev-libs/openssl
 	sys-apps/lsb-release
-	!llvm-libgcc? ( sys-devel/gcc:* )
+	|| (
+		llvm-runtimes/libgcc
+		sys-devel/gcc:*
+	)
 	!dev-lang/rust:stable
 	!dev-lang/rust-bin:stable
 "
 BDEPEND="
-	llvm-libgcc? ( dev-util/patchelf )
 	prefix? ( dev-util/patchelf )
 	verify-sig? ( sec-keys/openpgp-keys-rust )
 "
@@ -103,71 +100,6 @@ src_unpack() {
 	default_src_unpack
 
 	mv "${WORKDIR}/${MY_P}-$(rust_abi)" "${S}" || die
-}
-
-src_prepare() {
-	eapply_user
-	if use llvm-libgcc ; then
-		# Install llvm-libgcc (libunwind with compiler-rt and GNU symbols) as a local
-		# replacement for libgcc_s. Hopefully we can get rid of this hack once we
-		# figure out the proper way of providing llvm-libgcc system-wide, see
-		# #946486.
-		pushd "${WORKDIR}/llvm-project-${LLVM_VERSION}.src"
-		CMAKE_USE_DIR="${WORKDIR}/llvm-project-${LLVM_VERSION}.src/llvm-libgcc"
-		cmake_src_prepare
-		popd
-	fi
-}
-
-multilib_src_configure() {
-  if use llvm-libgcc ; then
-		# Install llvm-libgcc (libunwind with compiler-rt and GNU symbols) as a local
-		# replacement for libgcc_s. Hopefully we can get rid of this hack once we
-		# figure out the proper way of providing llvm-libgcc system-wide, see
-		# #946486.
-		pushd "${WORKDIR}/llvm-project-${LLVM_VERSION}.src"
-
-    # LLVM_ENABLE_ASSERTIONS=NO does not guarantee this for us, #614844
-	  local -x CPPFLAGS="${CPPFLAGS} -DNDEBUG"
-
-	  local mycmakeargs=(
-			-DCOMPILER_RT_EXCLUDE_ATOMIC_BUILTIN=OFF
-			-DCOMPILER_RT_INCLUDE_TESTS=OFF
-			-DCOMPILER_RT_BUILD_CTX_PROFILE=OFF
-			-DCOMPILER_RT_BUILD_LIBFUZZER=OFF
-			-DCOMPILER_RT_BUILD_MEMPROF=OFF
-			-DCOMPILER_RT_BUILD_ORC=OFF
-			-DCOMPILER_RT_BUILD_PROFILE=OFF
-			-DCOMPILER_RT_BUILD_SANITIZERS=OFF
-			-DCOMPILER_RT_BUILD_XRAY=OFF
-
-	  	-DLLVM_INCLUDE_TESTS=OFF
-	  	-DLLVM_LIBGCC_EXPLICIT_OPT_IN=ON
-	  )
-
-	  if use amd64; then
-	  	mycmakeargs+=(
-	  		-DCAN_TARGET_i386=$(usex abi_x86_32)
-	  		-DCAN_TARGET_x86_64=$(usex abi_x86_64)
-	  	)
-	  fi
-
-	  cmake_src_configure
-
-		popd
-	fi
-}
-
-multilib_src_compile() {
-  if use llvm-libgcc ; then
-		# Install llvm-libgcc (libunwind with compiler-rt and GNU symbols) as a local
-		# replacement for libgcc_s. Hopefully we can get rid of this hack once we
-		# figure out the proper way of providing llvm-libgcc system-wide, see
-		# #946486.
-		pushd "${WORKDIR}/llvm-project-${LLVM_VERSION}.src"
-    cmake_src_compile
-		popd
-  fi
 }
 
 patchelf_for_bin() {
@@ -300,25 +232,6 @@ multilib_src_install() {
 
 	# BUG: installs x86_64 binary on other arches
 	rm -f "${ED}/opt/${P}/lib/rustlib/"*/bin/rust-llvm-dwp || die
-
-	if use llvm-libgcc ; then
-		# Install llvm-libgcc (libunwind with compiler-rt and GNU symbols) as a local
-		# replacement for libgcc_s. Hopefully we can get rid of this hack once we
-		# figure out the proper way of providing llvm-libgcc system-wide, see
-		# #946486.
-		ebegin "Replacing libgcc_s with libunwind (llvm-libgcc)"
-
-		mkdir -p "${ED}/opt/${P}/lib/runtime"
-		cp "${BUILD_DIR}/lib/libunwind.so.1.0" "${ED}/opt/${P}/lib/runtime/libunwind.so.1"
-
-		find "${ED}/opt/${P}"/{bin,lib,libexec} -type f -print0 | \
-			while IFS=  read -r -d '' filename; do
-				# just ignore wrong filetype error, instead of checking redundantly
-				patchelf --replace-needed libgcc_s.so.1 \
-					"${EPREFIX}/opt/${P}/lib/runtime/libunwind.so.1" ${filename} 2>/dev/null
-			done
-		eend ${PIPESTATUS[0]}
-	fi
 }
 
 pkg_postinst() {
