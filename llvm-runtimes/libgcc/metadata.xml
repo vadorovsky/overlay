@@ -8,6 +8,13 @@
 	<maintainer type="project">
 		<email>llvm@gentoo.org</email>
 	</maintainer>
+	<use>
+		<flag name="atomic-builtins">
+			Compile atomic builtins into compiler-rt.builtins.  This is
+			needed on systems without GCC/libatomic, but requires using
+			Clang to build.
+		</flag>
+	</use>
 	<upstream>
 		<remote-id type="github">llvm/llvm-project</remote-id>
 	</upstream>
