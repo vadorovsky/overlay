@@ -1,17 +1,17 @@
-# Copyright 1999-2023 Gentoo Authors
+# Copyright 1999-2025 Gentoo Authors
 # Distributed under the terms of the GNU General Public License v2
 
 EAPI=8
 
 CONFIG_CHECK="~ADVISE_SYSCALLS"
-PYTHON_COMPAT=( python3_{9..11} )
+PYTHON_COMPAT=( python3_{10..13} )
 PYTHON_REQ_USE="threads(+)"
 
-inherit bash-completion-r1 check-reqs flag-o-matic linux-info pax-utils python-any-r1 toolchain-funcs xdg-utils
+inherit bash-completion-r1 check-reqs flag-o-matic linux-info ninja-utils pax-utils python-any-r1 toolchain-funcs xdg-utils
 
 DESCRIPTION="A JavaScript runtime built on Chrome's V8 JavaScript engine"
 HOMEPAGE="https://nodejs.org/"
-LICENSE="Apache-1.1 Apache-2.0 BSD BSD-2 MIT"
+LICENSE="Apache-1.1 Apache-2.0 BSD BSD-2 MIT npm? ( Artistic-2 )"
 
 if [[ ${PV} == *9999 ]]; then
 	inherit git-r3
@@ -24,9 +24,8 @@ else
 	S="${WORKDIR}/node-v${PV}"
 fi
 
-IUSE="corepack cpu_flags_x86_sse2 debug doc +icu inspector lto +npm pax-kernel +snapshot +ssl +system-icu +system-ssl test"
-REQUIRED_USE="corepack? ( !npm )
-	inspector? ( icu ssl )
+IUSE="corepack cpu_flags_x86_sse2 debug doc +icu inspector +llvm-atomic-builtins lto npm pax-kernel +snapshot +ssl +system-icu +system-ssl test"
+REQUIRED_USE="inspector? ( icu ssl )
 	npm? ( ssl )
 	system-icu? ( icu )
 	system-ssl? ( ssl )
@@ -35,13 +34,21 @@ REQUIRED_USE="corepack? ( !npm )
 RESTRICT="!test? ( test )"
 
 RDEPEND=">=app-arch/brotli-1.0.9:=
-	>=dev-libs/libuv-1.44.0:=
+	dev-db/sqlite:3
+	>=dev-libs/libuv-1.46.0:=
+	>=dev-libs/simdjson-3.9.1:=
 	>=net-dns/c-ares-1.18.1:=
-	>=net-libs/nghttp2-1.41.0:=
+	>=net-libs/nghttp2-1.61.0:=
 	sys-libs/zlib
 	corepack? ( !sys-apps/yarn )
-	system-icu? ( >=dev-libs/icu-67:= )
-	system-ssl? ( >=dev-libs/openssl-1.1.1:0= )"
+	llvm-atomic-builtins? ( llvm-runtimes/compiler-rt[atomic-builtins] )
+	!llvm-atomic-builtins? ( sys-devel/gcc:* )
+	system-icu? ( >=dev-libs/icu-73:= )
+	system-ssl? (
+		>=net-libs/ngtcp2-1.3.0:=
+		>=dev-libs/openssl-1.1.1:0=
+	)
+	!system-ssl? ( >=net-libs/ngtcp2-1.3.0:=[-gnutls] )"
 BDEPEND="${PYTHON_DEPS}
 	app-alternatives/ninja
 	sys-apps/coreutils
@@ -49,6 +56,10 @@ BDEPEND="${PYTHON_DEPS}
 	test? ( net-misc/curl )
 	pax-kernel? ( sys-apps/elfix )"
 DEPEND="${RDEPEND}"
+
+PATCHES=(
+	"${FILESDIR}/${PN}-22.12.0-compiler-rt-atomic-builtins.patch"
+)
 
 # These are measured on a loong machine with -ggdb on, and only checked
 # if debugging flags are present in CFLAGS.
@@ -59,11 +70,6 @@ DEPEND="${RDEPEND}"
 # fatter binaries and set the disk requirement to 22GiB.
 CHECKREQS_MEMORY="8G"
 CHECKREQS_DISK_BUILD="22G"
-
-PATCHES=(
-	"${FILESDIR}"/"${PN}"-20.3.0-gcc14.patch
-	"${FILESDIR}"/${PN}-16.20.2-clang-fix-libatomic.patch
-	)
 
 pkg_pretend() {
 	if [[ ${MERGE_TYPE} != "binary" ]]; then
@@ -88,9 +94,6 @@ src_prepare() {
 	# https://code.google.com/p/gyp/issues/detail?id=260
 	sed -i -e "/append('-arch/d" tools/gyp/pylib/gyp/xcode_emulation.py || die
 
-	# less verbose install output (stating the same as portage, basically)
-	sed -i -e "/print/d" tools/install.py || die
-
 	# proper libdir, hat tip @ryanpcmcquen https://github.com/iojs/io.js/issues/504
 	local LIBDIR=$(get_libdir)
 	sed -i -e "s|lib/|${LIBDIR}/|g" tools/install.py || die
@@ -108,7 +111,10 @@ src_prepare() {
 	fi
 
 	# We need to disable mprotect on two files when it builds Bug 694100.
-	use pax-kernel && PATCHES+=( "${FILESDIR}"/${PN}-20.6.0-paxmarking.patch )
+	use pax-kernel && PATCHES+=( "${FILESDIR}"/${PN}-22.12.0-paxmarking.patch )
+
+	# bug 931256
+	use riscv && PATCHES+=( "${FILESDIR}"/${PN}-22.2.0-riscv.patch )
 
 	default
 }
@@ -118,15 +124,28 @@ src_configure() {
 
 	# LTO compiler flags are handled by configure.py itself
 	filter-lto
-	# nodejs unconditionally links to libatomic #869992
-	append-atomic-flags
+	# GCC with -ftree-vectorize miscompiles node's exception handling code
+	# causing it to fail to catch exceptions sometimes
+	# https://gcc.gnu.org/bugzilla/show_bug.cgi?id=116057
+	tc-is-gcc && append-cxxflags -fno-tree-vectorize
+	# https://bugs.gentoo.org/931514
+	use arm64 && append-flags $(test-flags-CXX -mbranch-protection=none)
 
 	local myconf=(
 		--ninja
+		# ada is not packaged yet
+		# https://github.com/ada-url/ada
+		# --shared-ada
 		--shared-brotli
 		--shared-cares
 		--shared-libuv
 		--shared-nghttp2
+		--shared-ngtcp2
+		--shared-simdjson
+		# sindutf is not packaged yet
+		# https://github.com/simdutf/simdutf
+		# --shared-simdutf
+		--shared-sqlite
 		--shared-zlib
 	)
 	use debug && myconf+=( --debug )
@@ -139,6 +158,7 @@ src_configure() {
 		myconf+=( --with-intl=none )
 	fi
 	use corepack || myconf+=( --without-corepack )
+	use llvm-atomic-builtins && myconf+=( --use-compiler-rt-atomics )
 	use inspector || myconf+=( --without-inspector )
 	use npm || myconf+=( --without-npm )
 	use snapshot || myconf+=( --without-node-snapshot )
@@ -171,7 +191,8 @@ src_configure() {
 }
 
 src_compile() {
-	emake
+	export NINJA_ARGS=" $(get_NINJAOPTS)"
+	emake -Onone
 }
 
 src_install() {
@@ -234,16 +255,30 @@ src_install() {
 
 src_test() {
 	local drop_tests=(
-		test/parallel/test-fs-read-stream.js
+		test/parallel/test-dns.js
+		test/parallel/test-dns-resolveany-bad-ancount.js
 		test/parallel/test-dns-setserver-when-querying.js
 		test/parallel/test-fs-mkdir.js
+		test/parallel/test-fs-read-stream.js
 		test/parallel/test-fs-utimes-y2K38.js
 		test/parallel/test-fs-watch-recursive-add-file.js
+		test/parallel/test-process-euid-egid.js
+		test/parallel/test-process-get-builtin.mjs
+		test/parallel/test-process-initgroups.js
+		test/parallel/test-process-setgroups.js
+		test/parallel/test-process-uid-gid.js
 		test/parallel/test-release-npm.js
 		test/parallel/test-socket-write-after-fin-error.js
 		test/parallel/test-strace-openat-openssl.js
 		test/sequential/test-util-debug.js
 	)
+	[[ "$(nice)" -gt 10 ]] && drop_tests+=( "test/parallel/test-os.js" )
+	use inspector ||
+		drop_tests+=(
+			test/parallel/test-inspector-emit-protocol-event.js
+			test/parallel/test-inspector-network-domain.js
+			test/sequential/test-watch-mode.mjs
+		)
 	rm -f "${drop_tests[@]}" || die "disabling tests failed"
 
 	out/${BUILDTYPE}/cctest || die
@@ -253,6 +288,6 @@ src_test() {
 pkg_postinst() {
 	if use npm; then
 		ewarn "remember to run: source /etc/profile if you plan to use nodejs"
-		ewarn "	in your current shell"
+		ewarn " in your current shell"
 	fi
 }
