@@ -49,12 +49,6 @@ pkg_setup() {
 	python-any-r1_pkg_setup
 }
 
-test_compiler() {
-	target_is_not_host && return
-	$(tc-getCC) ${CFLAGS} ${LDFLAGS} "${@}" -o /dev/null -x c - \
-		<<<'int main() { return 0; }' &>/dev/null
-}
-
 src_configure() {
 	llvm_prepend_path "${LLVM_MAJOR}"
 
@@ -66,22 +60,6 @@ src_configure() {
 
 	local -x CC=${CTARGET}-clang CXX=${CTARGET}-clang++
 	strip-unsupported-flags
-
-	if ! test_compiler ; then
-		local nolib_flags=( -nodefaultlibs -lc )
-
-		if test_compiler "${nolib_flags[@]}"; then
-			local -x LDFLAGS="${LDFLAGS} ${nolib_flags[*]}"
-			ewarn "${CC} seems to lack runtime, trying with ${nolib_flags[*]}"
-		elif test_compiler "${nolib_flags[@]}" -nostartfiles; then
-			# Avoiding -nostartfiles earlier on for bug #862540,
-			# and set available entry symbol for bug #862798.
-			nolib_flags+=( -nostartfiles -e main )
-
-			local -x LDFLAGS="${LDFLAGS} ${nolib_flags[*]}"
-			ewarn "${CC} seems to lack runtime, trying with ${nolib_flags[*]}"
-		fi
-	fi
 
 	local mycmakeargs=(
 		-DCOMPILER_RT_INSTALL_PATH="${EPREFIX}/usr/lib/clang/${LLVM_MAJOR}"
@@ -96,6 +74,8 @@ src_configure() {
 		-DCOMPILER_RT_BUILD_SANITIZERS=OFF
 		-DCOMPILER_RT_BUILD_XRAY=OFF
 
+		-DCOMPILER_RT_BUILTINS_HIDE_SYMBOLS=OFF
+
 		-DPython3_EXECUTABLE="${PYTHON}"
 	)
 
@@ -103,19 +83,6 @@ src_configure() {
 		mycmakeargs+=(
 			-DCAN_TARGET_i386=$(usex abi_x86_32)
 			-DCAN_TARGET_x86_64=$(usex abi_x86_64)
-		)
-	fi
-
-	if use prefix && [[ "${CHOST}" == *-darwin* ]] ; then
-		mycmakeargs+=(
-			# setting -isysroot is disabled with compiler-rt-prefix-paths.patch
-			# this allows adding arm64 support using SDK in EPREFIX
-			-DDARWIN_macosx_CACHED_SYSROOT="${EPREFIX}/MacOSX.sdk"
-			# Set version based on the SDK in EPREFIX.
-			# This disables i386 for SDK >= 10.15
-			-DDARWIN_macosx_OVERRIDE_SDK_VERSION="$(realpath ${EPREFIX}/MacOSX.sdk | sed -e 's/.*MacOSX\(.*\)\.sdk/\1/')"
-			# Use our libtool instead of looking it up with xcrun
-			-DCMAKE_LIBTOOL="${EPREFIX}/usr/bin/${CHOST}-libtool"
 		)
 	fi
 
@@ -152,19 +119,19 @@ src_compile() {
 		-o libgcc_s.so.1.0 || die
 }
 
-src_install() {
-	local libdir=$(get_libdir)
-	dolib.so libgcc_s.so.1.0
-	insinto "/usr/${libdir}"
-	newins "${BUILD_DIR}/lib/linux/libclang_rt.builtins-${CTARGET%%-*}.a" libgcc.a
-	dosym libgcc_s.so.1.0 "/usr/${libdir}/libgcc_s.so.1"
-	dosym libgcc_s.so.1 "/usr/${libdir}/libgcc_s.so"
-	dosym libunwind.a "/usr/${libdir}/libgcc_eh.a"
-}
-
 src_test() {
 	# respect TMPDIR!
 	local -x LIT_PRESERVES_TMP=1
 
 	cmake_build check-builtins
+}
+
+src_install() {
+	local libdir=$(get_libdir)
+	dolib.so libgcc_s.so.1.0
+	insinto "/usr/${libdir}"
+	newlib.a "${BUILD_DIR}/lib/linux/libclang_rt.builtins-${CTARGET%%-*}.a" libgcc.a
+	dosym libgcc_s.so.1.0 "/usr/${libdir}/libgcc_s.so.1"
+	dosym libgcc_s.so.1 "/usr/${libdir}/libgcc_s.so"
+	dosym libunwind.a "/usr/${libdir}/libgcc_eh.a"
 }
