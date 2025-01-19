@@ -14,8 +14,7 @@ SLOT="0"
 IUSE="+abi_x86_32 abi_x86_64 +atomic-builtins debug test"
 
 DEPEND="
-	llvm-runtimes/compiler-rt:${LLVM_MAJOR}
-	=llvm-runtimes/libunwind-${PV}[static-libs]
+	~llvm-runtimes/libunwind-${PV}[static-libs]
 	!!sys-devel/gcc
 "
 BDEPEND="
@@ -110,11 +109,11 @@ src_compile() {
 	$(tc-getCC) -nostdlib \
 		${LDFLAGS} \
 		-Wl,--version-script,gcc_s.ver \
+		-Wl,--undefined-version \
 		-Wl,--whole-archive \
 		"${BUILD_DIR}/lib/linux/libclang_rt.builtins-${CTARGET%%-*}.a" \
-		"${EPREFIX}/usr/${libdir}/libunwind.a" \
 		-Wl,-soname,libgcc_s.so.1.0 \
-		-lc -shared \
+		-lc -lunwind -shared \
 		-o libgcc_s.so.1.0 || die
 }
 
