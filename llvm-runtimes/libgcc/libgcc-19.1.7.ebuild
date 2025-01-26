@@ -4,7 +4,8 @@
 EAPI=8
 
 PYTHON_COMPAT=( python3_{10..13} )
-inherit cmake crossdev llvm.org llvm-utils python-any-r1 toolchain-funcs
+inherit cmake crossdev flag-o-matic llvm.org llvm-utils python-any-r1
+inherit toolchain-funcs
 
 DESCRIPTION="Compiler runtime library for clang, compatible with libgcc_s"
 HOMEPAGE="https://llvm.org/"
@@ -12,11 +13,14 @@ HOMEPAGE="https://llvm.org/"
 LICENSE="Apache-2.0-with-LLVM-exceptions || ( UoI-NCSA MIT )"
 SLOT="0"
 KEYWORDS="~amd64 ~arm ~arm64 ~loong ~mips ~ppc64 ~riscv ~x86 ~amd64-linux ~arm64-macos ~ppc-macos ~x64-macos"
-IUSE="+abi_x86_32 abi_x86_64 +atomic-builtins debug test"
+IUSE="debug test"
 
 DEPEND="
 	~llvm-runtimes/libunwind-${PV}[static-libs]
-	!!sys-devel/gcc
+"
+RDEPEND="
+	${DEPEND}
+	!sys-devel/gcc
 "
 BDEPEND="
 	llvm-core/clang:${LLVM_MAJOR}
@@ -49,22 +53,23 @@ pkg_setup() {
 }
 
 src_configure() {
+	# We need to build a separate copy of compiler-rt, because we need to disable the
+	# COMPILER_RT_BUILTINS_HIDE_SYMBOLS option - compatibility with libgcc requires
+	# visibility of all symbols.
+
 	llvm_prepend_path "${LLVM_MAJOR}"
 
 	# LLVM_ENABLE_ASSERTIONS=NO does not guarantee this for us, #614844
 	use debug || local -x CPPFLAGS="${CPPFLAGS} -DNDEBUG"
 
-	# pre-set since we need to pass it to cmake
-	BUILD_DIR=${WORKDIR}/${P}_build
-
-	local -x CC=${CTARGET}-clang CXX=${CTARGET}-clang++
+	local -x CC=${CTARGET}-clang
 	strip-unsupported-flags
 
 	local mycmakeargs=(
 		-DCOMPILER_RT_INSTALL_PATH="${EPREFIX}/usr/lib/clang/${LLVM_MAJOR}"
 
-		-DCOMPILER_RT_EXCLUDE_ATOMIC_BUILTIN=$(usex !atomic-builtins)
 		-DCOMPILER_RT_INCLUDE_TESTS=$(usex test)
+		-DCOMPILER_RT_BUILD_CRT=OFF
 		-DCOMPILER_RT_BUILD_CTX_PROFILE=OFF
 		-DCOMPILER_RT_BUILD_LIBFUZZER=OFF
 		-DCOMPILER_RT_BUILD_MEMPROF=OFF
@@ -78,10 +83,9 @@ src_configure() {
 		-DPython3_EXECUTABLE="${PYTHON}"
 	)
 
-	if use amd64 && ! target_is_not_host; then
+	if use amd64; then
 		mycmakeargs+=(
-			-DCAN_TARGET_i386=$(usex abi_x86_32)
-			-DCAN_TARGET_x86_64=$(usex abi_x86_64)
+			-DCAN_TARGET_i386=OFF
 		)
 	fi
 
@@ -98,21 +102,39 @@ src_configure() {
 	cmake_src_configure
 }
 
-src_compile() {
-	local -x CC=${CTARGET}-clang CXX=${CTARGET}-clang++
-	local libdir=$(get_libdir)
+# Returns the path to the locally built compiler-rt shared library.
+get_rtlib() {
+	"${CTARGET}-clang" -rtlib=compiler-rt -resource-dir="${BUILD_DIR}" \
+		-print-libgcc-file-name || die
+}
 
+src_compile() {
 	cmake_src_compile
 
-	$(tc-getCPP) \
+	local -x CC=${CTARGET}-clang
+	local libdir=$(get_libdir)
+
+	# Use the llvm-libgcc's version script to produce libgcc.{a,so}, which
+	# combines compiler-rt and libunwind into a libgcc replacement.
+	#
+	# What we do here is similar to what upstream does[0], with the following
+	# differences:
+	#
+	# * We build the local copy of compiler-rt manually, to have a full control
+	#   over CMake options.
+	# * Upstream links the locally built copy of libunwind statically. We link the
+	#   system-wide libunwind dynamically.
+	#
+	# [0] https://github.com/llvm/llvm-project/blob/llvmorg-19.1.7/llvm-libgcc/CMakeLists.txt#L102-L120
+	${CC} -E -xc \
 		"${WORKDIR}/llvm-libgcc/gcc_s.ver.in" \
 		-o gcc_s.ver || die
-	$(tc-getCC) -nostdlib \
+	${CC} -nostdlib \
 		${LDFLAGS} \
 		-Wl,--version-script,gcc_s.ver \
 		-Wl,--undefined-version \
 		-Wl,--whole-archive \
-		"${BUILD_DIR}/lib/linux/libclang_rt.builtins-${CTARGET%%-*}.a" \
+		"$(get_rtlib)" \
 		-Wl,-soname,libgcc_s.so.1.0 \
 		-lc -lunwind -shared \
 		-o libgcc_s.so.1.0 || die
@@ -128,8 +150,7 @@ src_test() {
 src_install() {
 	local libdir=$(get_libdir)
 	dolib.so libgcc_s.so.1.0
-	insinto "/usr/${libdir}"
-	newlib.a "${BUILD_DIR}/lib/linux/libclang_rt.builtins-${CTARGET%%-*}.a" libgcc.a
+	newlib.a "$(get_rtlib)" libgcc.a
 	dosym libgcc_s.so.1.0 "/usr/${libdir}/libgcc_s.so.1"
 	dosym libgcc_s.so.1 "/usr/${libdir}/libgcc_s.so"
 	dosym libunwind.a "/usr/${libdir}/libgcc_eh.a"
